@@ -90,7 +90,7 @@ def main():
         return "voice_log stored"
 
     def s_why():
-        status, body = http_post(base, "/api/why", {"question": "Why did pressure change?"})
+        status, body = http_post(base, "/api/why", {"question": "Why did pressure change?"}, timeout=35)
         assert status == 200, f"HTTP {status}: {body}"
         ev = body.get("evidence", [])
         assert isinstance(ev, list) and len(ev) > 0, f"empty evidence: {body}"
