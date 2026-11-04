@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+dist/
+*.log
+.DS_Store
+recordings/
+.taste-skill/
+.agents/
+.codex/
+skills-lock.json

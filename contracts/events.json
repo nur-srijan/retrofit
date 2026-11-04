@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"StreamEvent","type":"object","required":["kind","ts"],"properties":{"kind":{"enum":["reading","alert","voice_log","system"]},"ts":{"type":"number"},"reading":{"$ref":"reading.json"},"rule_id":{"type":"string"},"message":{"type":"string"},"transcript":{"type":"string"}}}

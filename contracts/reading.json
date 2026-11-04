@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"Reading","type":"object","required":["instrument_id","ts","value"],"properties":{"instrument_id":{"type":"string"},"ts":{"type":"number","description":"unix seconds"},"value":{"type":["number","boolean"]},"unit":{"type":"string"},"quality":{"enum":["ok","low_confidence","simulated"]}}}
