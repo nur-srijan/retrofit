@@ -78,10 +78,16 @@ function drawOverlay(){
   c.width = v.videoWidth; c.height = v.videoHeight;
   const x = c.getContext('2d'); x.clearRect(0, 0, c.width, c.height);
   instruments.forEach(i => {
-    const col = colorFor(i.id);
-    x.strokeStyle = col; x.lineWidth = 3;
+    // SAM 3.1 perception box (this IS instruments[i].bbox) in green
+    x.strokeStyle = '#79c98a'; x.lineWidth = 3;
     x.strokeRect(i.bbox.x * c.width, i.bbox.y * c.height, i.bbox.w * c.width, i.bbox.h * c.height);
-    x.fillStyle = col; x.font = '600 17px "DM Sans", sans-serif';
+    // Spark's original classification box, when SAM moved it, in thin amber
+    if (i.spark_bbox){
+      x.strokeStyle = '#e5a83b'; x.lineWidth = 1;
+      x.strokeRect(i.spark_bbox.x * c.width, i.spark_bbox.y * c.height, i.spark_bbox.w * c.width, i.spark_bbox.h * c.height);
+    }
+    // Spark classification label above the SAM box
+    x.fillStyle = '#79c98a'; x.font = '600 17px "DM Sans", sans-serif';
     const last = (series[i.id] || []).slice(-1)[0];
     x.fillText(`${i.label}${last !== undefined ? '  ' + last + ' ' + i.unit : ''}`, i.bbox.x * c.width + 6, Math.max(20, i.bbox.y * c.height - 8));
   });
@@ -150,10 +156,30 @@ window.compileOne = async id => {
   } catch (e) { $('compileOut').innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
 };
 
+let frameTimer = null, frameBusy = false;
+function stopFrameStream(){ if (frameTimer) clearInterval(frameTimer); frameTimer = null; }
+function startFrameStream(){
+  stopFrameStream();
+  const v = $('video'), c = document.createElement('canvas');
+  frameTimer = setInterval(async () => {
+    if (frameBusy || !v.videoWidth) return;
+    frameBusy = true;
+    try {
+      const scale = Math.min(1, 640 / v.videoWidth);
+      c.width = v.videoWidth * scale; c.height = v.videoHeight * scale;
+      c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+      const r = await api('/api/frame', { method: 'POST', body: JSON.stringify({ image: c.toDataURL('image/jpeg', 0.7) }) });
+      if (r.readings && r.readings.length) status(`<strong>Live camera.</strong> Reading ${r.readings.length} instruments from pixels at ~4 FPS (compiled readers, no per-frame model calls).`);
+    } catch (e) { /* transient frame failure: next tick retries */ }
+    frameBusy = false;
+  }, 250);
+}
 $('camBtn').onclick = async () => {
   try {
     const s = await navigator.mediaDevices.getUserMedia({ video: true });
-    $('video').srcObject = s; $('simPanel').style.display = 'none'; log('Camera started');
+    $('video').srcObject = s; $('simPanel').style.display = 'none';
+    log('Camera started - streaming frames to /api/frame (features extracted from pixels)');
+    startFrameStream();
   } catch (e) { status('Camera unavailable: ' + esc(e.message) + ' — the demo panel works without one.'); }
 };
 $('detectBtn').onclick = async () => {
@@ -172,6 +198,7 @@ $('detectBtn').onclick = async () => {
   } catch (e) { status(esc(e.message)); }
 };
 $('demoBtn').onclick = async () => {
+  stopFrameStream();
   await api('/api/demo/start', { method: 'POST', body: '{}' });
   if (!instruments.length){ const r = await api('/api/detect', { method: 'POST', body: JSON.stringify({ image: '' }) }); instruments = r.instruments; renderInstruments(); }
   $('demoBadge').classList.remove('hidden'); $('simPanel').style.display = 'grid';
@@ -179,6 +206,7 @@ $('demoBtn').onclick = async () => {
   log('Demo panel started');
 };
 $('stopBtn').onclick = async () => {
+  stopFrameStream(); const v=$('video'); if(v.srcObject){v.srcObject.getTracks().forEach(tr=>tr.stop()); v.srcObject=null; $('simPanel').style.display='grid';}
   await api('/api/demo/stop', { method: 'POST', body: '{}' });
   $('demoBadge').classList.add('hidden'); log('Stream stopped');
 };

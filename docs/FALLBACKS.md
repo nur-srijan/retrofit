@@ -9,3 +9,9 @@ Verified live: `muse-spark-1.3` + `muse-wonder-1.0` chat completions at https://
 | Wonder why? | muse-wonder-1.0 grounded on computed stats | Local stats/correlation template answer citing same evidence[] |
 | Voice log | muse-voice-transcribe-1.0 upload | Browser Web Speech API transcript -> POST /api/voice {transcript} |
 | Runtime | Compiled readers on features | Simulator produces plausible gauge/temp/stopwatch/light series through same readers |
+
+## Reality Gap closure (Nov 5)
+- Live path is pixel-driven: `POST /api/frame` -> `backend/vision.py:extract_features` (PIL+NumPy: radial needle scan, luminance, 7-seg zones) -> compiled reader -> store/WebSocket. Simulator only for the no-camera demo panel; `/api/frame` disables it.
+- Voice: browser WebM/Opus is converted server-side to mono s16 16kHz WAV (ffmpeg) because Muse Voice Transcribe requires `audioEncoding: "WAV"` and a request part of exactly `{model, audioEncoding}`; verified live (`source: "muse-voice-transcribe-1.0"`).
+- SAM 3.1 boxes are mapped directly onto `instruments[i].bbox` when returned (Spark box kept as `spark_bbox`); SAM often returns zero boxes, disclosed in UI.
+- Blocking Meta calls run via `asyncio.to_thread` so the event loop / health endpoint never stalls.

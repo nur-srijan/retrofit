@@ -58,10 +58,14 @@ def _extract_json(text):
 def detect_instruments(image_data_url, client=None):
     sam_boxes=[]
     if client is not None and image_data_url:
-        # SAM 3.1 first (per concept)
-        sam_found=[]
-        for concept in ["pressure gauge","thermometer","digital display","indicator light"]:
-            try: sam_found += client.sam_segment(image_data_url, concept)
+        # SAM 3.1 first (per concept) - boxes kept with their concept so
+        # they can be mapped directly onto Spark-classified instruments
+        sam_found=[]; sam_by_concept={}
+        CONCEPTS={"gauge":"pressure gauge","thermometer":"thermometer","digital_display":"digital display","indicator_light":"indicator light","switch":"switch"}
+        for typ, concept in CONCEPTS.items():
+            try:
+                boxes=client.sam_segment(image_data_url, concept)
+                sam_by_concept[typ]=boxes; sam_found += boxes
             except Exception: pass
         # Muse Spark vision whole-frame
         try:
@@ -76,7 +80,18 @@ def detect_instruments(image_data_url, client=None):
                 it.setdefault("calibration",{"min_angle_deg":-120,"max_angle_deg":120} if it["type"] in ("gauge","thermometer") else {}); it["source"]="sam+spark" if sam_found else "spark-vision"; it.setdefault("track_id",i+1); valid.append(it)
             sam_boxes.extend(sam_found)
             if valid:
-                for v in valid: v["sam_boxes"]=len(sam_found)
+                for v in valid:
+                    v["sam_boxes"]=len(sam_found)
+                    pool=sam_by_concept.get(v["type"]) or sam_found
+                    if pool:
+                        # nearest SAM box (by centre) becomes THE instrument bbox;
+                        # Spark's box is retained for the overlay comparison
+                        vc=(v["bbox"]["x"]+v["bbox"]["w"]/2, v["bbox"]["y"]+v["bbox"]["h"]/2)
+                        best=min(pool, key=lambda b: (b["bbox"]["x"]+b["bbox"]["w"]/2-vc[0])**2 + (b["bbox"]["y"]+b["bbox"]["h"]/2-vc[1])**2)
+                        v["spark_bbox"]=dict(v["bbox"]); v["bbox"]=dict(best["bbox"])
+                        v["confidence"]=best.get("confidence", v["confidence"])
+                        if best.get("track_id") is not None: v["track_id"]=best["track_id"]
+                        v["source"]="sam+spark"
                 return valid, valid[0]["source"]
         except Exception: pass
     return [dict(x) for x in DEMO_INSTRUMENTS], "demo-fallback"

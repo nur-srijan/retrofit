@@ -6,6 +6,7 @@ from backend.meta_clients import MetaClient
 from backend.readers import DEMO_INSTRUMENTS, detect_instruments, compile_reader, run_compiled, features_for
 from backend.store import Store
 from backend.agent import parse_rule, check_rules, why_query, voice_log
+from backend.vision import extract_features
 
 app=FastAPI(title="Retrofit")
 client=MetaClient(); store=Store()
@@ -30,7 +31,7 @@ def demo_value(inst, t):
 async def incident_agent(ev):
     """Muse Spark Open (Baseten) writes the incident summary - second load-bearing Spark Open job."""
     try:
-        content,src=client.spark_open([{"role":"user","content":f"Write a one-sentence operator incident summary + recommended action for this alert. Alert: {ev['message']}. Latest: {store.latest()}"}], max_tokens=2000)
+        content,src=await asyncio.to_thread(client.spark_open, [{"role":"user","content":f"Write a one-sentence operator incident summary + recommended action for this alert. Alert: {ev['message']}. Latest: {store.latest()}"}], max_tokens=2000)
         msg=content
         if not msg: msg,src=f"Incident: {ev['message']} - check the panel.", src+" (empty response; local summary)"
     except Exception:
@@ -66,20 +67,52 @@ def health(): return {"status":"ok","models":client.status(),"fallbacks":FALLBAC
 
 @app.post("/api/detect")
 async def detect(req: Request):
-    body=await req.json(); instruments,source=detect_instruments(body.get("image",""), client)
+    body=await req.json(); instruments,source=await asyncio.to_thread(detect_instruments, body.get("image",""), client)
     state["instruments"]=instruments; return {"instruments":instruments,"source":source}
 
 @app.post("/api/compile")
 async def compile_ep(req: Request):
     body=await req.json(); inst=body.get("instrument") or next((i for i in state["instruments"] if i["id"]==body.get("instrument_id")),None)
     if not inst: raise HTTPException(404,"instrument not found")
-    comp=compile_reader(inst, client); state["compiled"][inst["id"]]=comp; return comp
+    comp=await asyncio.to_thread(compile_reader, inst, client); state["compiled"][inst["id"]]=comp; return comp
 
 @app.get("/api/schema")
 def schema(): return {"instruments":state["instruments"],"types":{i["id"]:("boolean" if i["type"] in ("indicator_light","switch") else "number") for i in state["instruments"]}}
 
 @app.get("/api/readings")
 def readings(limit:int=200): return {"readings":{i["id"]:store.history(i["id"],limit) for i in state["instruments"]},"latest":store.latest(),"stats":store.all_stats()}
+
+state["last_features"]={}
+@app.post("/api/frame")
+async def frame(req: Request):
+    """Live camera path: pixels -> features -> compiled reader -> store/WS.
+    This is the default live path when a camera is streaming; the sine
+    simulator is only for the no-camera demo panel."""
+    body=await req.json(); img=body.get("image","")
+    if "," in img: img=img.split(",",1)[1]
+    try: raw=base64.b64decode(img)
+    except Exception: raise HTTPException(400,"image is not base64")
+    state["demo"]=False  # real frames take over from the simulator
+    out=[]
+    for inst in state["instruments"]:
+        comp=state["compiled"].get(inst["id"]) or compile_reader(inst, None)
+        state["compiled"][inst["id"]]=comp
+        try:
+            feats=extract_features(raw, inst)
+            state["last_features"][inst["id"]]=feats; quality="camera"
+        except Exception:
+            feats=state["last_features"].get(inst["id"])
+            if feats is None: continue  # no reading yet - never fabricate
+            quality="low_confidence"  # previous features, honestly labelled
+        try: val=run_compiled(comp, feats)
+        except Exception: continue
+        val=round(float(val),2) if inst["type"]!="digital_display" else round(float(val),1)
+        r={"instrument_id":inst["id"],"ts":time.time(),"value":val,"unit":inst["unit"],"quality":quality}
+        store.add_reading(r); out.append(r); await broadcast({"kind":"reading","ts":r["ts"],"reading":r})
+    for ev in check_rules(state["rules"], store.latest()):
+        if time.time()-state["alert_cooldown"].get(ev["rule_id"],0)>15:
+            state["alert_cooldown"][ev["rule_id"]]=time.time(); store.add_event(ev); await broadcast(ev); asyncio.create_task(incident_agent(ev))
+    return {"readings":out,"source":"camera"}
 
 @app.post("/api/demo/start")
 def demo_start(): state["demo"]=True; state["t0"]=time.time(); return {"ok":True,"demo":True}
@@ -89,7 +122,7 @@ def demo_stop(): state["demo"]=False; return {"ok":True,"demo":False}
 @app.post("/api/rules")
 async def add_rule(req: Request):
     body=await req.json()
-    try: rule=parse_rule(body.get("text",""), state["instruments"], client)
+    try: rule=await asyncio.to_thread(parse_rule, body.get("text",""), state["instruments"], client)
     except ValueError as e: raise HTTPException(400,str(e))
     state["rules"].append(rule); return rule
 @app.get("/api/rules")
@@ -99,14 +132,14 @@ def del_rule(rule_id:str): state["rules"]=[r for r in state["rules"] if r["id"]!
 
 @app.post("/api/why")
 async def why(req: Request):
-    body=await req.json(); return why_query(body.get("question","Why did pressure drop?"), store, client, store.recent_events())
+    body=await req.json(); return await asyncio.to_thread(why_query, body.get("question","Why did pressure drop?"), store, client, store.recent_events())
 
 @app.post("/api/voice")
 async def voice(req: Request):
     body=await req.json()
     try:
         audio=base64.b64decode(body["audio_base64"]) if body.get("audio_base64") else None
-        ev=voice_log(body.get("transcript"), client, audio)
+        ev=await asyncio.to_thread(voice_log, body.get("transcript"), client, audio)
     except Exception as e: raise HTTPException(400,str(e))
     store.add_event(ev); await broadcast(ev); return ev
 

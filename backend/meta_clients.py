@@ -52,16 +52,35 @@ class MetaClient:
         except Exception: return []
         from backend.sam_parser import parse_sam_text
         return parse_sam_text(text)
+    def _to_wav16k(self, audio_bytes, filename):
+        if audio_bytes[:4]==b"RIFF": return audio_bytes
+        import shutil, subprocess, tempfile
+        ffmpeg=shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
+        if not shutil.which(ffmpeg) and not os.path.exists(ffmpeg): raise RuntimeError("ffmpeg required to convert browser audio to WAV")
+        suffix=os.path.splitext(filename)[1] or ".webm"
+        with tempfile.TemporaryDirectory() as d:
+            src=os.path.join(d,"in"+suffix); dst=os.path.join(d,"out.wav")
+            open(src,"wb").write(audio_bytes)
+            subprocess.run([ffmpeg,"-y","-i",src,"-ac","1","-ar","16000","-sample_fmt","s16",dst], check=True, capture_output=True)
+            return open(dst,"rb").read()
     def transcribe(self, audio_bytes, filename="audio.webm"):
+        """Muse Voice Transcribe: multipart 'request'+'audio' (verified live).
+        request must be exactly {model, audioEncoding:WAV}; extra fields -> 400."""
         if not self.key: raise RuntimeError("MODEL_API_KEY not set")
+        audio_bytes=self._to_wav16k(audio_bytes, filename); filename="audio.wav"
         boundary="----retrofit"+uuid.uuid4().hex
-        parts=[]
-        def field(name, val): parts.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{val}\r\n".encode())
-        field("model","muse-voice-transcribe-1.0"); field("language","en"); field("output_format","json")
-        parts.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\nContent-Type: audio/webm\r\n\r\n".encode()+audio_bytes+b"\r\n")
-        parts.append(f"--{boundary}--\r\n".encode())
+        ctype="audio/wav"
+        request_json=json.dumps({"model":"muse-voice-transcribe-1.0","audioEncoding":"WAV"})
+        parts=[
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"request\"\r\nContent-Type: application/json\r\n\r\n{request_json}\r\n".encode(),
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"{filename}\"\r\nContent-Type: {ctype}\r\n\r\n".encode()+audio_bytes+b"\r\n",
+            f"--{boundary}--\r\n".encode(),
+        ]
         req=urllib.request.Request(f"{BASE}/asr/transcribe", data=b"".join(parts), headers={"Authorization":f"Bearer {self.key}","Content-Type":f"multipart/form-data; boundary={boundary}"}, method="POST")
         with urllib.request.urlopen(req, timeout=90) as r: out=json.loads(r.read())
-        return out.get("text") or out.get("transcript") or str(out)
+        text=out.get("text") or out.get("transcript") or ""
+        if not text and isinstance(out.get("result"), dict): text=out["result"].get("text","")
+        if not text: raise RuntimeError(f"transcribe returned no text: {str(out)[:200]}")
+        return text
     def status(self):
         return {"meta_key_present":bool(self.key),"baseten_key_present":bool(self.baseten_key),"spark_open_source":f"{self.spark_open_model} via Baseten" if self.baseten_key else "fallback muse-spark-1.3 (set BASETEN_API_KEY for Spark Open)","meta_base":BASE}
