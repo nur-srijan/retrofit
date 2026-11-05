@@ -20,3 +20,13 @@ class Store:
     def add_event(self,e):
         with self.lock: self.events.append(e)
     def recent_events(self,limit=50): return list(self.events)[-limit:]
+    def to_csv(self):
+        with self.lock:
+            rows=["timestamp_iso,timestamp_unix,instrument_id,value,unit,quality"]
+            all_r=[]
+            for dq in self.data.values(): all_r.extend(list(dq))
+            all_r.sort(key=lambda x: x.get("ts", 0))
+            for r in all_r:
+                iso=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(r.get("ts",0)))
+                rows.append(f"{iso},{r.get('ts',0):.3f},{r.get('instrument_id','')},{r.get('value','')},{r.get('unit','')},{r.get('quality','')}")
+            return "\n".join(rows)

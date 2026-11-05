@@ -97,11 +97,20 @@ def main():
         assert body.get("answer"), f"empty answer: {body}"
         return f"evidence={len(ev)}"
 
+    def s_export_csv():
+        req = urllib.request.Request(base + "/api/export/csv", method="GET")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            assert r.status == 200, f"HTTP {r.status}"
+            raw = r.read().decode()
+            assert "timestamp_iso" in raw and "instrument_id" in raw
+            return f"csv rows={len(raw.splitlines())}"
+
     step("GET /api/health", s_health)
     step("POST /api/demo/start", s_demo_start)
     step("wait + GET /api/readings (>=3 instruments)", s_readings)
     step("POST /api/rules", s_rules)
     step("POST /api/voice", s_voice)
+    step("GET /api/export/csv", s_export_csv)
     step("POST /api/why (evidence non-empty)", s_why)
 
     if failures:

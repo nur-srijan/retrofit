@@ -1,6 +1,6 @@
-import os, time, math, random, asyncio, base64, json
+import os, time, math, random, asyncio, base64, json, urllib.request
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from backend.meta_clients import MetaClient
 from backend.readers import DEMO_INSTRUMENTS, detect_instruments, compile_reader, run_compiled, features_for
@@ -10,7 +10,7 @@ from backend.vision import extract_features
 
 app=FastAPI(title="Retrofit")
 client=MetaClient(); store=Store()
-state={"instruments":[dict(x) for x in DEMO_INSTRUMENTS],"compiled":{},"rules":[],"demo":False,"t0":time.time(),"clients":set(),"alert_cooldown":{}}
+state={"instruments":[dict(x) for x in DEMO_INSTRUMENTS],"compiled":{},"rules":[],"demo":False,"t0":time.time(),"clients":set(),"alert_cooldown":{},"webhooks":[]}
 FALLBACKS=["SAM 3.1 -> Spark vision -> demo instruments","Spark reader code -> local templates","Spark Open (Baseten) -> muse-spark-1.3 -> regex parser","Wonder -> local stats","Voice Transcribe -> browser Web Speech"]
 
 async def broadcast(ev):
@@ -19,6 +19,13 @@ async def broadcast(ev):
         try: await ws.send_json(ev)
         except Exception: dead.append(ws)
     for ws in dead: state["clients"].discard(ws)
+
+async def dispatch_webhooks(event):
+    for url in list(state.get("webhooks",[])):
+        try:
+            req=urllib.request.Request(url, data=json.dumps(event).encode(), headers={"Content-Type":"application/json"}, method="POST")
+            await asyncio.to_thread(urllib.request.urlopen, req, timeout=4)
+        except Exception: pass
 
 def demo_value(inst, t):
     el=t-state["t0"]
@@ -37,7 +44,7 @@ async def incident_agent(ev):
     except Exception:
         msg,src=f"Incident: {ev['message']} - check the panel.", "local template (Spark Open unavailable)"
     out={"kind":"incident","ts":time.time(),"message":msg,"source_model":src,"rule_id":ev.get("rule_id")}
-    store.add_event(out); await broadcast(out)
+    store.add_event(out); await broadcast(out); asyncio.create_task(dispatch_webhooks(out))
 
 async def simulator():
     while True:
@@ -56,7 +63,7 @@ async def simulator():
             for ev in check_rules(state["rules"], store.latest()):
                 key=ev["rule_id"]
                 if now-state["alert_cooldown"].get(key,0)>15:
-                    state["alert_cooldown"][key]=now; store.add_event(ev); await broadcast(ev); asyncio.create_task(incident_agent(ev))
+                    state["alert_cooldown"][key]=now; store.add_event(ev); await broadcast(ev); asyncio.create_task(incident_agent(ev)); asyncio.create_task(dispatch_webhooks(ev))
         await asyncio.sleep(1)
 
 @app.on_event("startup")
@@ -111,11 +118,33 @@ async def frame(req: Request):
         store.add_reading(r); out.append(r); await broadcast({"kind":"reading","ts":r["ts"],"reading":r})
     for ev in check_rules(state["rules"], store.latest()):
         if time.time()-state["alert_cooldown"].get(ev["rule_id"],0)>15:
-            state["alert_cooldown"][ev["rule_id"]]=time.time(); store.add_event(ev); await broadcast(ev); asyncio.create_task(incident_agent(ev))
+            state["alert_cooldown"][ev["rule_id"]]=time.time(); store.add_event(ev); await broadcast(ev); asyncio.create_task(incident_agent(ev)); asyncio.create_task(dispatch_webhooks(ev))
     return {"readings":out,"source":"camera"}
 
+@app.get("/api/export/csv")
+def export_csv():
+    return Response(
+        content=store.to_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=retrofit_telemetry.csv"}
+    )
+
+@app.post("/api/webhooks")
+async def add_webhook(req: Request):
+    body=await req.json(); url=body.get("url")
+    if not url: raise HTTPException(400, "url required")
+    state["webhooks"].append(url)
+    return {"ok":True, "webhooks":state["webhooks"]}
+
+@app.get("/api/webhooks")
+def list_webhooks():
+    return {"webhooks":state.get("webhooks",[])}
+
 @app.post("/api/demo/start")
-def demo_start(): state["demo"]=True; state["t0"]=time.time(); return {"ok":True,"demo":True}
+def demo_start():
+    if not state["instruments"]:
+        state["instruments"]=[dict(x) for x in DEMO_INSTRUMENTS]
+    state["demo"]=True; state["t0"]=time.time(); return {"ok":True,"demo":True}
 @app.post("/api/demo/stop")
 def demo_stop(): state["demo"]=False; return {"ok":True,"demo":False}
 

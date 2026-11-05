@@ -8,7 +8,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Meta Model API](https://img.shields.io/badge/Meta_Model_API-SAM_3.1_%7C_Muse_Spark_%7C_Muse_Wonder-0668E1?style=flat&logo=meta&logoColor=white)](https://dev.meta.ai/)
 [![Open-Weight Model](https://img.shields.io/badge/Baseten-Muse_Spark_Open_1026-00D2B4?style=flat)](https://www.baseten.co/)
-[![Tests](https://img.shields.io/badge/Tests-27%2F27_Passing-brightgreen?style=flat)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-30%2F30_Passing-brightgreen?style=flat)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Meta Global AI Developer Hackathon Submission**  
@@ -157,11 +157,12 @@ python3 scripts/e2e_check.py
 
 ```text
 ============================== test session starts ==============================
-tests/test_agent.py ........                                             [ 29%]
-tests/test_readers.py ...                                                [ 40%]
-tests/test_sam_parser.py .........                                       [ 74%]
+tests/test_agent.py ........                                             [ 26%]
+tests/test_features.py ...                                               [ 36%]
+tests/test_readers.py ...                                                [ 46%]
+tests/test_sam_parser.py .........                                       [ 76%]
 tests/test_vision.py .......                                             [100%]
-============================== 27 passed in 0.14s ==============================
+============================== 30 passed in 0.42s ==============================
 ```
 
 ---

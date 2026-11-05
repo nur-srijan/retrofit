@@ -94,4 +94,5 @@ def detect_instruments(image_data_url, client=None):
                         v["source"]="sam+spark"
                 return valid, valid[0]["source"]
         except Exception: pass
+    if image_data_url: return [], "none-detected"
     return [dict(x) for x in DEMO_INSTRUMENTS], "demo-fallback"

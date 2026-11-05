@@ -77,6 +77,7 @@ function drawOverlay(){
   const c = $('overlay'), v = $('video'); if (!v.videoWidth) return;
   c.width = v.videoWidth; c.height = v.videoHeight;
   const x = c.getContext('2d'); x.clearRect(0, 0, c.width, c.height);
+  if (!instruments.length) return;
   instruments.forEach(i => {
     // SAM 3.1 perception box (this IS instruments[i].bbox) in green
     x.strokeStyle = '#79c98a'; x.lineWidth = 3;
@@ -192,6 +193,12 @@ $('detectBtn').onclick = async () => {
   try {
     const r = await api('/api/detect', { method: 'POST', body: JSON.stringify({ image: img }) });
     instruments = r.instruments; renderInstruments();
+    if (!instruments.length) {
+      drawOverlay();
+      status('<strong>No instruments found in frame.</strong> Point camera directly at a gauge, thermometer, or indicator light.');
+      log('No instruments detected in camera frame', 'incident');
+      return;
+    }
     const sam = instruments[0]?.sam_boxes ?? 0;
     status(`<strong>Detected ${instruments.length} instruments</strong> via ${esc(r.source)}. SAM 3.1 boxes: ${sam}${sam === 0 && r.source !== 'demo-fallback' ? ' — SAM returned none, so Spark vision carried detection (disclosed fallback)' : ''}.`);
     log(`Detected ${instruments.length} instruments via ${r.source} (SAM boxes: ${sam})`);
@@ -199,8 +206,11 @@ $('detectBtn').onclick = async () => {
 };
 $('demoBtn').onclick = async () => {
   stopFrameStream();
+  if (!instruments.length || instruments[0]?.source === "none-detected"){
+    const r = await api('/api/detect', { method: 'POST', body: JSON.stringify({ image: '' }) });
+    instruments = r.instruments; renderInstruments();
+  }
   await api('/api/demo/start', { method: 'POST', body: '{}' });
-  if (!instruments.length){ const r = await api('/api/detect', { method: 'POST', body: JSON.stringify({ image: '' }) }); instruments = r.instruments; renderInstruments(); }
   $('demoBadge').classList.remove('hidden'); $('simPanel').style.display = 'grid';
   status('<strong>Demo panel live.</strong> Readings stream through the compiled readers.');
   log('Demo panel started');

@@ -39,6 +39,8 @@ main{display:grid;align-items:start;grid-template-columns:5fr 7fr;gap:20px;paddi
 .panel-head{display:flex;justify-content:space-between;align-items:baseline;gap:16px;margin-bottom:14px}
 .panel-head h2{margin:0;font-size:16px;font-weight:600;letter-spacing:-.01em}
 .head-note{font-size:12px;color:var(--faint);text-align:right}
+.export-btn{display:inline-flex;align-items:center;height:24px;padding:0 9px;background:var(--raised);color:var(--muted);border:1px solid var(--control);border-radius:var(--radius-control);font-size:11px;font-weight:500;text-decoration:none;transition:all .15s var(--ease-out);margin-right:10px}
+.export-btn:hover{background:#262824;color:var(--text);border-color:var(--muted)}
 .hint{color:var(--muted);font-size:13px;margin:12px 0 0}
 .empty{color:var(--faint);font-size:13px;margin:0}
 

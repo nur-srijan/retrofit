@@ -114,3 +114,4 @@
 2. **Audio quality:** Use your wired earphones or AirPods mic if possible to keep audio crisp.
 3. **If Wonder latency takes 8 seconds:** Don't wait silently! While the "Muse Wonder reasoning..." spinner appears, say: *"While Wonder calculates the cross-series variance, notice our architecture gracefully streams evidence tokens..."*
 4. **Export:** Export as 1080p MP4 or record directly on Loom.
+
